@@ -18,3 +18,20 @@ npm run test:report
 ```
 
 No relatório, abra um cenário e consulte os anexos `Evidência API` para inspecionar as chamadas executadas, inclusive aquelas feitas durante a preparação dos dados do cenário.
+
+## Executar cenários por tags
+
+As tags Gherkin permitem selecionar grupos de cenários:
+
+```bash
+npm run test:smoke
+npm run test:regression
+npm run test:journeys
+```
+
+- `@smoke`: fluxos positivos essenciais, para uma verificação rápida da API.
+- `@regressao`: todos os cenários funcionais das features, incluindo cenários de smoke.
+- `@jornada-usuario` e `@jornada-compra`: fluxos de autenticação e compra de ponta a ponta.
+- `@integracao`, `@validacao`, `@seguranca`, `@regra-negocio`, `@crud` e `@contrato`: classificações adicionais por objetivo do teste.
+
+Os comandos geram os testes BDD antes de executar o Playwright. Para filtrar outra tag, use `npm test -- --grep @nome-da-tag`.

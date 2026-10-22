@@ -6,6 +6,9 @@
 "scripts": {
   "bdd:gen": "bddgen",
   "test": "bddgen && playwright test",
+  "test:smoke": "bddgen && playwright test --grep @smoke",
+  "test:regression": "bddgen && playwright test --grep @regressao",
+  "test:journeys": "bddgen && playwright test --grep @jornada",
   "test:report": "playwright show-report"
 },
   "keywords": [],
