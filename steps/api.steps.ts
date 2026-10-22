@@ -1,9 +1,9 @@
-import { expect, type APIResponse } from '@playwright/test';
+import { expect, type APIRequestContext, type APIResponse } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { createBdd } from 'playwright-bdd';
 import { apiRequest } from './api-evidence';
 
-const { Given, When, Then } = createBdd();
+const { Given, When, Then, Before, After } = createBdd();
 
 type UsuarioPayload = {
   nome: string;
@@ -34,6 +34,9 @@ let emailDuplicado: string;
 let emailCase: string;
 let senhaCase: string;
 const quantidadeNoCarrinho = 2;
+const usuariosCriados = new Set<string>();
+const produtosCriados: Array<{ id: string; authorization: string }> = [];
+const carrinhosCriados: Array<{ authorization: string }> = [];
 
 function mensagemDaResposta(body: Record<string, unknown>): unknown {
   return body.message ?? Object.values(body)[0];
@@ -48,6 +51,76 @@ function validarId(id: unknown): asserts id is string {
   expect(id).not.toBe('');
 }
 
+async function rastrearUsuario(response: APIResponse): Promise<void> {
+  if (response.status() !== 201) return;
+  const body = await response.json();
+  validarId(body._id);
+  usuariosCriados.add(body._id);
+}
+
+async function rastrearProduto(response: APIResponse, authorization: string): Promise<void> {
+  if (response.status() !== 201) return;
+  const body = await response.json();
+  validarId(body._id);
+  produtosCriados.push({ id: body._id, authorization });
+}
+
+async function rastrearCarrinho(response: APIResponse, authorization: string): Promise<void> {
+  if (response.status() !== 201) return;
+  const body = await response.json();
+  validarId(body._id);
+  carrinhosCriados.push({ authorization });
+}
+
+Before(async () => {
+  authToken = '';
+  produtoIdArmazenado = '';
+  carrinhoIdArmazenado = '';
+  usuarioIdArmazenado = undefined;
+  estoqueInicial = 0;
+  payloadUsuario = { nome: '', administrador: 'false' };
+  payloadProduto = { nome: '', preco: 0, descricao: '', quantidade: 0 };
+  emailUsuario = '';
+  emailUsuarioAtualizado = '';
+  senhaUsuario = '';
+  emailDuplicado = '';
+  emailCase = '';
+  senhaCase = '';
+  usuariosCriados.clear();
+  produtosCriados.length = 0;
+  carrinhosCriados.length = 0;
+});
+
+After(async ({ request }) => {
+  for (const cart of carrinhosCriados) {
+    const response = await apiRequest(request, 'DELETE', '/carrinhos/cancelar-compra', {
+      headers: { Authorization: cart.authorization },
+    });
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect([
+      'Registro excluído com sucesso. Estoque dos produtos reabastecido',
+      'Não foi encontrado carrinho para esse usuário',
+    ]).toContain(body.message);
+  }
+
+  for (const product of produtosCriados.reverse()) {
+    const response = await apiRequest(request, 'DELETE', `/produtos/${product.id}`, {
+      headers: { Authorization: product.authorization },
+    });
+    expect(response.status()).toBe(200);
+    expect(['Registro excluído com sucesso', 'Nenhum registro excluído'])
+      .toContain((await response.json()).message);
+  }
+
+  for (const userId of [...usuariosCriados].reverse()) {
+    const response = await apiRequest(request, 'DELETE', `/usuarios/${userId}`);
+    expect(response.status()).toBe(200);
+    expect(['Registro excluído com sucesso', 'Nenhum registro excluído'])
+      .toContain((await response.json()).message);
+  }
+});
+
 // Autenticação, produtos e carrinho
 Given('que eu tenho credenciais de um usuário administrador válido', async ({ request }) => {
   emailUsuario = emailUnico('admin');
@@ -60,6 +133,7 @@ Given('que eu tenho credenciais de um usuário administrador válido', async ({ 
       administrador: 'true',
     },
   });
+  await rastrearUsuario(response);
   expect(response.status()).toBe(201);
 });
 
@@ -86,6 +160,7 @@ Given('que eu estou autenticado como administrador', async ({ request }) => {
   const userResponse = await apiRequest(request, 'POST', '/usuarios', {
     data: { nome: 'Admin Prod', email, password: senha, administrador: 'true' },
   });
+  await rastrearUsuario(userResponse);
   expect(userResponse.status()).toBe(201);
 
   const loginResponse = await apiRequest(request, 'POST', '/login', {
@@ -103,6 +178,7 @@ Given('que eu tenho os dados de um novo produto', async () => {
     descricao: 'Produto automatizado via BDD',
     quantidade: 10,
   };
+  estoqueInicial = payloadProduto.quantidade;
 });
 
 When('eu envio uma requisição para cadastrar o produto', async ({ request }) => {
@@ -110,10 +186,16 @@ When('eu envio uma requisição para cadastrar o produto', async ({ request }) =
     headers: { Authorization: authToken },
     data: payloadProduto,
   });
+  await rastrearProduto(respostaAPI, authToken);
 });
 
 Then('o código de status da resposta de produto deve ser {int}', async ({}, statusCode: number) => {
   expect(respostaAPI.status()).toBe(statusCode);
+  if (statusCode === 201) {
+    const body = await respostaAPI.json();
+    validarId(body._id);
+    produtoIdArmazenado = body._id;
+  }
 });
 
 Then('a mensagem de produto deve ser {string}', async ({}, mensagemEsperada: string) => {
@@ -140,6 +222,7 @@ Given('que eu estou autenticado como administrador e possuo um produto cadastrad
   const userResponse = await apiRequest(request, 'POST', '/usuarios', {
     data: { nome: 'Admin Cart', email, password: senha, administrador: 'true' },
   });
+  await rastrearUsuario(userResponse);
   expect(userResponse.status()).toBe(201);
 
   const loginResponse = await apiRequest(request, 'POST', '/login', {
@@ -159,6 +242,7 @@ Given('que eu estou autenticado como administrador e possuo um produto cadastrad
       quantidade: estoqueInicial,
     },
   });
+  await rastrearProduto(productResponse, authToken);
   expect(productResponse.status()).toBe(201);
   const productBody = await productResponse.json();
   validarId(productBody._id);
@@ -171,6 +255,7 @@ Given('que eu estou autenticado como administrador e possuo um produto cadastrad
   const userResponse = await apiRequest(request, 'POST', '/usuarios', {
     data: { nome: 'Admin Estoque', email, password: senha, administrador: 'true' },
   });
+  await rastrearUsuario(userResponse);
   expect(userResponse.status()).toBe(201);
 
   const loginResponse = await apiRequest(request, 'POST', '/login', {
@@ -190,6 +275,7 @@ Given('que eu estou autenticado como administrador e possuo um produto cadastrad
       quantidade: estoqueInicial,
     },
   });
+  await rastrearProduto(productResponse, authToken);
   expect(productResponse.status()).toBe(201);
   const productBody = await productResponse.json();
   validarId(productBody._id);
@@ -203,6 +289,7 @@ When('eu adiciono o produto ao carrinho', async ({ request }) => {
       produtos: [{ idProduto: produtoIdArmazenado, quantidade: quantidadeNoCarrinho }],
     },
   });
+  await rastrearCarrinho(respostaAPI, authToken);
 });
 
 Then('o código de status da criação do carrinho deve ser {int}', async ({}, statusCode: number) => {
@@ -345,6 +432,7 @@ When('eu utilizo o token obtido para cadastrar um novo produto', async ({ reques
       quantidade: 15,
     },
   });
+  await rastrearProduto(respostaAPI, authToken);
 });
 
 // Gestão de usuários
@@ -358,8 +446,20 @@ Given('que eu tenho os dados de um novo usuário', async () => {
   };
 });
 
+Given('que eu tenho os dados de um usuário administrador para a jornada de compra', async () => {
+  emailUsuario = emailUnico('jornada_compra');
+  senhaUsuario = 'teste123';
+  payloadUsuario = {
+    nome: 'Usuário Jornada de Compra',
+    email: emailUsuario,
+    password: senhaUsuario,
+    administrador: 'true',
+  };
+});
+
 When('eu enviar uma requisição para cadastrar o usuário', async ({ request }) => {
   respostaAPI = await apiRequest(request, 'POST', '/usuarios', { data: payloadUsuario });
+  await rastrearUsuario(respostaAPI);
 });
 
 Then('o código de status da resposta deve ser {int}', async ({}, statusCode: number) => {
@@ -431,6 +531,7 @@ Given('que existe um usuário previamente cadastrado', async ({ request }) => {
       administrador: 'false',
     },
   });
+  await rastrearUsuario(response);
   expect(response.status()).toBe(201);
 });
 
@@ -459,6 +560,7 @@ Given('que existe um usuário para localizar na listagem', async ({ request }) =
       administrador: 'false',
     },
   });
+  await rastrearUsuario(response);
   expect(response.status()).toBe(201);
   const body = await response.json();
   validarId(body._id);
@@ -492,6 +594,7 @@ Given('que eu tenho um usuário cadastrado para atualização', async ({ request
       administrador: 'true',
     },
   });
+  await rastrearUsuario(response);
   expect(response.status()).toBe(201);
   const body = await response.json();
   validarId(body._id);
@@ -500,7 +603,7 @@ Given('que eu tenho um usuário cadastrado para atualização', async ({ request
 
 When('eu envio uma requisição para atualizar os dados desse usuário', async ({ request }) => {
   const isUpdate = Boolean(usuarioIdArmazenado);
-  const userId = usuarioIdArmazenado ?? 'idInexistenteMock999';
+  const userId = usuarioIdArmazenado ?? randomUUID().replace(/-/g, '').slice(0, 16);
   if (isUpdate) {
     emailUsuarioAtualizado = emailUnico('atualizado');
   }
@@ -513,11 +616,24 @@ When('eu envio uma requisição para atualizar os dados desse usuário', async (
       }
     : payloadUsuario;
   respostaAPI = await apiRequest(request, 'PUT', `/usuarios/${userId}`, { data });
+  await rastrearUsuario(respostaAPI);
 });
 
 Then('a mensagem de atualização deve ser {string}', async ({}, mensagemEsperada: string) => {
   const body = await respostaAPI.json();
   expect(mensagemDaResposta(body)).toBe(mensagemEsperada);
+});
+
+Then('o usuário criado pelo PUT deve ser recuperável com os dados enviados', async ({ request }) => {
+  validarId(usuarioIdArmazenado);
+  const response = await apiRequest(request, 'GET', `/usuarios/${usuarioIdArmazenado}`);
+  expect(response.status()).toBe(200);
+  expect(await response.json()).toMatchObject({
+    _id: usuarioIdArmazenado,
+    nome: payloadUsuario.nome,
+    email: payloadUsuario.email,
+    administrador: payloadUsuario.administrador,
+  });
 });
 
 Then('os dados do usuário devem refletir a atualização', async ({ request }) => {
@@ -541,6 +657,7 @@ Given('que eu tenho um usuário cadastrado para exclusão', async ({ request }) 
       administrador: 'true',
     },
   });
+  await rastrearUsuario(response);
   expect(response.status()).toBe(201);
   const body = await response.json();
   validarId(body._id);
@@ -558,6 +675,7 @@ Given('que eu tenho um usuário com um carrinho cadastrado', async ({ request })
       administrador: 'true',
     },
   });
+  await rastrearUsuario(userResponse);
   expect(userResponse.status()).toBe(201);
   const userBody = await userResponse.json();
   validarId(userBody._id);
@@ -579,6 +697,7 @@ Given('que eu tenho um usuário com um carrinho cadastrado', async ({ request })
       quantidade: 5,
     },
   });
+  await rastrearProduto(productResponse, authorization);
   expect(productResponse.status()).toBe(201);
   const productBody = await productResponse.json();
   validarId(productBody._id);
@@ -587,6 +706,7 @@ Given('que eu tenho um usuário com um carrinho cadastrado', async ({ request })
     headers: { Authorization: authorization },
     data: { produtos: [{ idProduto: productBody._id, quantidade: 1 }] },
   });
+  await rastrearCarrinho(cartResponse, authorization);
   expect(cartResponse.status()).toBe(201);
   const cartBody = await cartResponse.json();
   validarId(cartBody._id);
@@ -637,6 +757,7 @@ Given('que eu tenho um usuário válido com e-mail e senha', async ({ request })
       administrador: 'true',
     },
   });
+  await rastrearUsuario(response);
   expect(response.status()).toBe(201);
 });
 
@@ -664,6 +785,7 @@ Given('que eu tenho um usuário cadastrado no sistema', async ({ request }) => {
       administrador: 'true',
     },
   });
+  await rastrearUsuario(response);
   expect(response.status()).toBe(201);
 });
 
@@ -711,6 +833,7 @@ Given('que eu tenho um usuário cadastrado com o e-mail {string}', async ({ requ
       administrador: 'true',
     },
   });
+  await rastrearUsuario(response);
   expect(response.status()).toBe(201);
 });
 
@@ -738,6 +861,7 @@ Given('que eu faço login com um usuário administrador válido', async ({ reque
       administrador: 'true',
     },
   });
+  await rastrearUsuario(userResponse);
   expect(userResponse.status()).toBe(201);
 
   const loginResponse = await apiRequest(request, 'POST', '/login', {

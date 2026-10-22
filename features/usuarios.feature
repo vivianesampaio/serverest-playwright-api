@@ -62,12 +62,13 @@ Feature: Gestão de Usuários na API ServeRest
     And a mensagem de atualização deve ser "Registro alterado com sucesso"
     And os dados do usuário devem refletir a atualização
 
-  @bug @contrato
-  Scenario: Tentar alterar um usuário que não existe registra um novo usuário
+  @contrato @comportamento-especial
+  Scenario: PUT em ID inexistente cria e retorna o novo usuário
     Given que eu tenho os dados de um novo usuário
     And eu envio uma requisição para atualizar os dados desse usuário
     Then o código de status da resposta deve ser 201
     And a mensagem deve ser "Cadastro realizado com sucesso"
+    And o usuário criado pelo PUT deve ser recuperável com os dados enviados
 
   @crud
   Scenario: Deletar um usuário existente

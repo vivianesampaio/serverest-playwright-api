@@ -27,9 +27,21 @@ Feature: Fluxo de Autenticação, Produtos e Carrinho na ServeRest
     Then o código de status da resposta de produto deve ser 401
     And a resposta deve indicar que a operação não foi autorizada
 
-  @smoke @jornada-compra @integracao
-  Scenario: Realizar o fluxo completo do carrinho de compras
-    Given que eu estou autenticado como administrador e possuo um produto cadastrado
+  @smoke @jornada-usuario @jornada-compra @integracao
+  Scenario: Completar a jornada de usuário e compra ponta a ponta
+    Given que eu tenho os dados de um usuário administrador para a jornada de compra
+    When eu enviar uma requisição para cadastrar o usuário
+    Then o código de status da resposta deve ser 201
+    And a mensagem deve ser "Cadastro realizado com sucesso"
+    And o usuário cadastrado deve ser recuperável com os dados enviados
+    When eu enviar uma requisição de login com as credenciais corretas
+    Then o código de status da resposta de login deve ser 200
+    And o token de autenticação deve ser retornado
+    And que eu tenho os dados de um novo produto
+    When eu envio uma requisição para cadastrar o produto
+    Then o código de status da resposta de produto deve ser 201
+    And a mensagem de produto deve ser "Cadastro realizado com sucesso"
+    And o produto cadastrado deve ser recuperável com os dados enviados
     When eu adiciono o produto ao carrinho
     Then o código de status da criação do carrinho deve ser 201
     And eu consigo listar os carrinhos cadastrados
