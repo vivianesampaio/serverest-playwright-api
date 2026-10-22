@@ -13,7 +13,7 @@ function redactSensitiveData(value: unknown, key = ''): unknown {
   }
 
   if (value !== null && typeof value === 'object') {
-    if (Buffer.isBuffer(value)) {
+    if (value instanceof Uint8Array) {
       return '[conteúdo binário omitido]';
     }
 
@@ -28,6 +28,11 @@ function redactSensitiveData(value: unknown, key = ''): unknown {
   return value;
 }
 
+function summarizeForStep(value: unknown): string {
+  const serialized = JSON.stringify(value) ?? String(value);
+  return serialized.length > 400 ? `${serialized.slice(0, 397)}...` : serialized;
+}
+
 export async function apiRequest(
   request: APIRequestContext,
   method: ApiMethod,
@@ -35,47 +40,55 @@ export async function apiRequest(
   options: ApiRequestOptions = {},
 ) {
   const testInfo = test.info();
-  const startedAt = Date.now();
-  const response = await request.fetch(url, { ...options, method });
-  const responseBytes = await response.body();
-  const responseText = new TextDecoder().decode(responseBytes);
-  let responseBody: unknown = null;
-
-  if (responseText) {
-    try {
-      responseBody = redactSensitiveData(JSON.parse(responseText));
-    } catch (error) {
-      if (!(error instanceof SyntaxError)) {
-        throw error;
-      }
-      responseBody = '[corpo de resposta não JSON omitido]';
-    }
-  }
-
-  const attachmentNumber = testInfo.attachments.length + 1;
   const safeUrl = url.includes('?') ? `${url.split('?')[0]}?[parâmetros omitidos]` : url;
-  const evidence = {
-    method,
-    url: safeUrl,
-    requestHeaders: Object.fromEntries(
-      Object.entries(options.headers ?? {}).filter(([name]) =>
-        ['accept', 'content-type'].includes(name.toLowerCase()),
+
+  return test.step(`API ${method} ${safeUrl}`, async () => {
+    const startedAt = Date.now();
+    const response = await request.fetch(url, { ...options, method });
+    const responseBytes = await response.body();
+    const responseText = new TextDecoder().decode(responseBytes);
+    let responseBody: unknown = null;
+
+    if (responseText) {
+      try {
+        responseBody = redactSensitiveData(JSON.parse(responseText));
+      } catch (error) {
+        if (!(error instanceof SyntaxError)) {
+          throw error;
+        }
+        responseBody = '[corpo de resposta não JSON omitido]';
+      }
+    }
+
+    const evidence = {
+      method,
+      url: safeUrl,
+      requestHeaders: Object.fromEntries(
+        Object.entries(options.headers ?? {}).filter(([name]) =>
+          ['accept', 'content-type'].includes(name.toLowerCase()),
+        ),
       ),
-    ),
-    requestBody: redactSensitiveData(options.data ?? null),
-    response: {
-      status: response.status(),
-      statusText: response.statusText(),
-      durationMs: Date.now() - startedAt,
-      contentType: response.headers()['content-type'] ?? null,
-      body: responseBody,
-    },
-  };
+      requestBody: redactSensitiveData(options.data ?? null),
+      response: {
+        status: response.status(),
+        statusText: response.statusText(),
+        durationMs: Date.now() - startedAt,
+        contentType: response.headers()['content-type'] ?? null,
+        body: responseBody,
+      },
+    };
 
-  await testInfo.attach(`Evidência API ${attachmentNumber} - ${method} ${safeUrl}`, {
-    body: JSON.stringify(evidence, null, 2),
-    contentType: 'application/json',
+    await test.step(`Request body: ${summarizeForStep(evidence.requestBody)}`, async () => {});
+    await test.step(
+      `Response body: ${summarizeForStep(evidence.response.body)}`,
+      async () => {},
+    );
+
+    await testInfo.attach(`Request + response — HTTP ${response.status()}`, {
+      body: JSON.stringify(evidence, null, 2),
+      contentType: 'application/json',
+    });
+
+    return response;
   });
-
-  return response;
 }

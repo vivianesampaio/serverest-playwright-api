@@ -121,7 +121,7 @@ Os dados dinâmicos, como e-mails, usam UUID para reduzir colisões entre cenár
 
 ## Evidências de execução
 
-As chamadas feitas pelos steps são anexadas ao relatório Playwright como arquivos JSON. As evidências incluem método, rota, corpo da requisição, status e corpo da resposta, tipo de conteúdo e duração. Campos sensíveis como senha, token e autorização são mascarados; cabeçalhos de autorização não são incluídos.
+Cada chamada aparece no relatório como um step `API METHOD /rota`, com um resumo do corpo enviado e recebido visível nos steps filhos. Os resumos longos são limitados a 400 caracteres; abra o anexo `Request + response — HTTP <status>` para ver o JSON completo, além do método, rota, status, tipo de conteúdo e duração. Campos sensíveis como senha, token e autorização são mascarados; cabeçalhos de autorização não são incluídos.
 
 Para gerar e abrir o relatório localmente:
 
