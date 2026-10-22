@@ -114,7 +114,11 @@ npm test
 npm run test:report
 ```
 
-No GitHub, acesse **Actions**, abra a execução do workflow **API tests** e baixe o artifact `playwright-report`. O workflow tenta publicar o artifact mesmo quando os testes falham; ele fica retido por sete dias.
+### Evidências da execução no GitHub Actions
+
+Acesse a página de [execuções do workflow API tests](https://github.com/vivianesampaio/serverest-playwright-api/actions/workflows/api-tests.yml). Para iniciar uma execução manual, clique em **Run workflow**, selecione a branch desejada e confirme em **Run workflow**. Quando terminar, abra a execução e confira o resultado do job **test**. Para consultar os detalhes das chamadas, baixe o artifact `playwright-report` na seção **Artifacts** da execução e abra `playwright-report/index.html`.
+
+O workflow também tenta publicar o relatório quando os testes falham, o que permite consultar as evidências para diagnóstico. Os artifacts ficam disponíveis por sete dias; para uma evidência duradoura, gere o relatório localmente com os comandos acima ou salve uma captura do resumo da execução.
 
 ## Investigação: pagamento confirmado, pedido ausente em “Meus Pedidos”
 
