@@ -1,6 +1,6 @@
 # Automação de APIs - ServeRest
 
-Projeto de automação de testes da API pública [ServeRest](https://serverest.dev), desenvolvido como desafio técnico para uma posição de QA Pleno. O foco é validar a integração entre usuários, autenticação, produtos e carrinhos.
+Projeto de automação de testes da API pública [ServeRest](https://serverest.dev), desenvolvido como desafio técnico. O foco é validar a integração entre usuários, autenticação, produtos e carrinhos.
 
 ## Requisitos
 
@@ -39,33 +39,15 @@ npm run bdd:gen
 npx playwright test --grep @validacao
 ```
 
-## Stack e decisões técnicas
+## Stack utilizadas e decisões técnicas
 
 - **TypeScript** para os steps e configuração.
 - **Playwright Test** para executar os testes e fazer asserções de API.
-- **playwright-bdd** para conectar cenários Gherkin (`.feature`) a steps TypeScript.
+- **Playwright-bdd** para conectar cenários Gherkin (`.feature`) a steps TypeScript.
 - **GitHub Actions** para executar a suíte em pushes, pull requests e manualmente.
 - A API testada é externa e pública; não há servidor da aplicação ou banco de dados local neste projeto.
 
 Os dados dinâmicos, como e-mails, usam UUID para reduzir colisões entre cenários executados em paralelo. As chamadas feitas pelos steps usam um helper comum que anexa evidências das requisições e respostas ao relatório.
-
-## Estrutura do projeto
-
-```text
-.
-├── .github/workflows/api-tests.yml  # CI no GitHub Actions
-├── features/
-│   ├── compras.feature              # Produtos e carrinhos
-│   ├── login.feature                # Autenticação
-│   └── usuarios.feature             # CRUD e regras de usuários
-├── steps/
-│   ├── api.steps.ts                 # Definições dos steps BDD
-│   └── api-evidence.ts              # Requisições e anexos de evidência
-├── .gitignore
-├── package.json
-├── package-lock.json
-└── playwright.config.ts
-```
 
 ## Cenários automatizados
 
@@ -95,13 +77,15 @@ Os dados dinâmicos, como e-mails, usam UUID para reduzir colisões entre cenár
 
 ## Priorização, riscos e escopo
 
-### Cenários mais críticos
+### Cenários mais críticos - porque os escolhi
 
 1. **Jornada de compra completa:** conecta autenticação, produto e carrinho e verifica o efeito de concluir a compra no estoque. Uma falha nesse encadeamento pode impedir a transação ou deixar os dados inconsistentes.
 2. **Cancelamento da compra:** verifica se o carrinho é removido e se o estoque é restaurado, protegendo a consistência da regra de negócio.
 3. **Autorização:** confirma que não é possível cadastrar produto sem token e que o token válido permite usar uma rota protegida.
 4. **Integridade de usuário e carrinho:** verifica a regra que impede excluir um usuário com carrinho associado e assegura que os registros permanecem disponíveis após a rejeição.
 5. **Validação de estoque e entrada:** garante que produto inexistente, quantidade zero e quantidade acima do estoque são rejeitados sem alterar o estoque.
+
+- **Justificativa:** Os cenparios foram escolhidos considerando a criticidade dos fluxos. Cenários de compra e cancelamento podem ter impacto/perda financeira se executados de maneira incorreta, cenários de autenticação representam risco de segurança e devemos garantir a integridade dos dados e permissionamento de acordo com o tipo de usuário. Validações de regras de negócio importantes como não permitir a exclusão de um usuário quando há um carrinho associado a ele e também a garantia que os produtos vendidos são corretamente atualizados no estoque e quando os pedidos são cancelados o estoque volta ao estado anteior a compra corretamente garante que não haja perda financeira/reputacional do cliente.     
 
 ### Riscos identificados
 
@@ -114,7 +98,7 @@ Os dados dinâmicos, como e-mails, usam UUID para reduzir colisões entre cenár
 
 ### O que ficou fora do escopo
 
-- Testes de interface, banco de dados ou código interno: o desafio solicita automação da API e não há acesso a esses componentes.
+- Testes de interface, banco de dados ou código interno: Não há acesso a esses componentes.
 - Cobertura exaustiva de todos os campos, filtros, paginação e combinações de validação: priorizei o fluxo de negócio e as regras diretamente relacionadas aos endpoints pedidos.
 - Testes destrutivos ou de segurança ofensiva em produção: não são necessários para demonstrar o contrato e o fluxo obrigatório.
 - Testes de carga, estresse e volume: exigem metas de desempenho, autorização e ambiente controlado; a API pública compartilhada não é apropriada para esse tipo de teste.
@@ -136,11 +120,13 @@ No GitHub, acesse **Actions**, abra a execução do workflow **API tests** e bai
 
 ### Primeira ação
 
-Eu começaria delimitando um caso real e correlacionável com Produto e Backend: identificar uma transação afetada e reunir, de forma segura, o identificador do pagamento/pedido, usuário, ambiente e horários aproximados. Em seguida, compararia a linha do tempo dessa transação com uma transação bem-sucedida, consultando os logs disponíveis e o estado exposto pelas APIs. Não começaria presumindo que a falha está na tela nem solicitando uma mudança de código antes de localizar onde o fluxo divergiu.
+Se eu me deparasse com esse cenário em produção sem possibilidade de reproduzir o comportamento em um ambiente de homologação,conversaria primeiro com o time de Produto para dimensionar o impacto: entender se estamos diante de um caso pontual de usuário ou de um incidente recorrente após uma recente alteração no sistema. A partir disso eu reuniria os dados de uma transação afetada (como o e-mail do cliente, o horário aproximado e o identificador do pagamento) e abriria o Datadog para investigar se através dos logs consigo identificar se o pedido foi concluído ou não através da análise do ciclo de vida da transação (neste caso a compra).
 
-### Hipótese inicial
+Minha suspeita inicial seria uma falha na integração assíncrona entre os serviços. Um cenário onde um pagamento aprovado com sucesso no gateway externo, mas sua notificação via webhook ou mensageria falha ao tentar acionar o serviço de pedidos, resultando em um timeout ou em uma mensagem descartada. Nesses casos, o cliente conclui a transação financeira, mas o pedido não chega a ser gravado no banco de dados.
 
-Minha hipótese inicial seria uma falha ou atraso na integração assíncrona entre a confirmação do pagamento e a criação/atualização do pedido. Por exemplo: o pagamento é aprovado, mas o evento que deveria criar o pedido não é processado, chega com atraso ou falha ao atualizar o estado consumido por “Meus Pedidos”.
+Eu também verificaria se o problema reside na camada de visualização: checar se o pedido realmente não foi gerado ou se ele existe no sistema, mas a interface de "Meus Pedidos" deixou de exibi-lo por algum bug de listagem ou paginação no Front-end.
+
+Para reduzir a incerteza de forma colaborativa, eu faria essa análise dos dados no Datadog, buscando por exceções, códigos de erro HTTP ou falhas de tempo limite atreladas ao horário da transação. Com as evidências reunidas, eu levaria o cenário para o desenvolvedor, indicando que o pagamento foi processado, mas a chamada subsequente falhou, abrindo espaço para avaliarmos em conjunto se o evento precisa ser reenviado ou se a fila sofreu alguma interrupção.
 
 ### Como reduziria a incerteza
 
@@ -163,4 +149,21 @@ Essa abordagem reduz a incerteza antes de decidir se a investigação deve focar
 npm run test:smoke
 npm run test:journeys
 npm run test:regression
+```
+## Estrutura do projeto
+
+```text
+.
+├── .github/workflows/api-tests.yml  # CI no GitHub Actions
+├── features/
+│   ├── compras.feature              # Produtos e carrinhos
+│   ├── login.feature                # Autenticação
+│   └── usuarios.feature             # CRUD e regras de usuários
+├── steps/
+│   ├── api.steps.ts                 # Definições dos steps BDD
+│   └── api-evidence.ts              # Requisições e anexos de evidência
+├── .gitignore
+├── package.json
+├── package-lock.json
+└── playwright.config.ts
 ```
