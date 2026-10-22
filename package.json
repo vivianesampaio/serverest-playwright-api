@@ -1,0 +1,19 @@
+{
+  "name": "serverest-playwright-api",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+"scripts": {
+  "bdd:gen": "bddgen",
+  "test": "bddgen && playwright test",
+  "test:report": "playwright show-report"
+},
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@cucumber/cucumber": "^13.3.0",
+    "@playwright/test": "^1.64.1",
+    "playwright-bdd": "^9.2.1"
+  }
+}

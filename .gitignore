@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Generated Playwright BDD tests
+.features-gen/
+
+# Playwright output
+playwright-report/
+test-results/
+blob-report/
+playwright/.cache/
+
+# Local environment variables
+.env
+.env.*
+!.env.example
+
+# OS files
+.DS_Store
+Thumbs.db
